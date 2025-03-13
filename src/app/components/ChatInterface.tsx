@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useUser, useAuth, SignInButton } from "@clerk/nextjs";
 import ChatBubble from "./ChatBubble";
 
@@ -65,9 +65,7 @@ export default function ChatInterface() {
         <div className="max-w-3xl mx-auto bg-white p-8 rounded-xl shadow-md">
           <h2 className="text-2xl font-semibold mb-6 text-gray-800">About Our Service</h2>
           <p className="mb-4 text-gray-600 leading-relaxed">
-            This is a sample application demonstrating user session management with
-            persistent chat history. Users can sign in with Clerk authentication
-            and chat with our AI assistant.
+            This is an app developed by minds at AgentGpt it will remember your chat history and you.
           </p>
           <p className="text-gray-600 leading-relaxed">
             Your chat history is saved even after you log out, and will be

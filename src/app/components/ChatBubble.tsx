@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Message } from "../lib/chatService";
 
@@ -17,8 +17,20 @@ export default function ChatBubble({ isOpen, onClose }: ChatBubbleProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { getToken } = useAuth();
 
-  // Use useCallback to memoize the fetchChatHistory function
-  const fetchChatHistory = useCallback(async () => {
+  // Load chat history
+  useEffect(() => {
+    if (isOpen) {
+      fetchChatHistory();
+    }
+  }, [isOpen]);
+
+  // Scroll to bottom of messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // Fetch chat history from API
+  async function fetchChatHistory() {
     try {
       setError(null);
       const token = await getToken();
@@ -40,19 +52,7 @@ export default function ChatBubble({ isOpen, onClose }: ChatBubbleProps) {
       console.error("Error fetching chat history:", error);
       setError("Failed to load chat history. Please try again.");
     }
-  }, [getToken]);
-
-  // Load chat history
-  useEffect(() => {
-    if (isOpen) {
-      fetchChatHistory();
-    }
-  }, [isOpen, fetchChatHistory]);
-
-  // Scroll to bottom of messages
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }
 
   // Send message to API
   async function sendMessage(e: React.FormEvent) {
@@ -178,29 +178,29 @@ export default function ChatBubble({ isOpen, onClose }: ChatBubbleProps) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input form */}
-      <form onSubmit={sendMessage} className="p-4 border-t border-gray-200 bg-white">
-        <div className="flex">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
-            className="flex-1 p-3 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-800 placeholder-gray-500 font-medium"
-            disabled={isLoading}
-          />
-          <button
-            type="submit"
-            className="bg-blue-600 text-white p-3 rounded-r-lg disabled:bg-blue-400 hover:bg-blue-700 transition-colors"
-            disabled={isLoading || !input.trim()}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13"></line>
-              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-            </svg>
-          </button>
-        </div>
-      </form>
+      
+<form onSubmit={sendMessage} className="p-4 border-t border-gray-200 bg-white">
+  <div className="flex">
+    <input
+      type="text"
+      value={input}
+      onChange={(e) => setInput(e.target.value)}
+      placeholder="Type your message..."
+      className="flex-1 p-3 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-800 placeholder-gray-500 font-medium"
+      disabled={isLoading}
+    />
+    <button
+      type="submit"
+      className="bg-blue-600 text-white p-3 rounded-r-lg disabled:bg-blue-400 hover:bg-blue-700 transition-colors"
+      disabled={isLoading || !input.trim()}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"></line>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+      </svg>
+    </button>
+  </div>
+</form>
     </div>
   );
-}   
+}
