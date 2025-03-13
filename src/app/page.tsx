@@ -1,5 +1,6 @@
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
+import Link from 'next/link'; // Added Link import
 import ChatInterface from './components/ChatInterface';
 
 export default async function Home() {
@@ -29,12 +30,12 @@ export default async function Home() {
         <div className="text-center p-6 bg-white rounded-lg shadow-md">
           <h1 className="text-2xl font-bold mb-4">Authentication Error</h1>
           <p className="mb-4">There was a problem with authentication. Please try signing in again.</p>
-          <a 
+          <Link 
             href="/sign-in" 
             className="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
           >
             Sign In
-          </a>
+          </Link>
         </div>
       </main>
     );

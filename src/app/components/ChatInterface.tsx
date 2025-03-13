@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react"; // Removed useEffect since it's not used
 import { useUser, useAuth, SignInButton } from "@clerk/nextjs";
 import ChatBubble from "./ChatBubble";
 
