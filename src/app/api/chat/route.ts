@@ -15,7 +15,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Parse request body
-    const { message } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const { message } = body;
+    
     if (!message) {
       return NextResponse.json(
         { error: "Message is required" },
@@ -28,10 +30,10 @@ export async function POST(req: NextRequest) {
 
     // Return the response
     return NextResponse.json({ response });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error in chat API:", error);
     return NextResponse.json(
-      { error: "An error occurred processing your request" },
+      { error: error.message || "An error occurred processing your request" },
       { status: 500 }
     );
   }
@@ -54,10 +56,10 @@ export async function GET() {
 
     // Return the chat history
     return NextResponse.json({ history });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error retrieving chat history:", error);
     return NextResponse.json(
-      { error: "An error occurred retrieving chat history" },
+      { error: error.message || "An error occurred retrieving chat history" },
       { status: 500 }
     );
   }

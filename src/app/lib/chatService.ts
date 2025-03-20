@@ -1,5 +1,4 @@
-import { createChatChain, getUserSessionId, getChatHistory } from "./sessionManager";
-import { AIMessage, HumanMessage } from "@langchain/core/messages";
+import { getUserSessionId, sendMessageToAssistant, getChatHistory } from "./sessionManager";
 
 export type Message = {
   role: "user" | "assistant";
@@ -14,13 +13,10 @@ export async function processMessage(message: string): Promise<string> {
     // Get user-specific session ID
     const sessionId = await getUserSessionId();
     
-    // Create chat chain with memory
-    const chain = await createChatChain(sessionId);
+    // Send message to OpenAI assistant and get response
+    const response = await sendMessageToAssistant(sessionId, message);
     
-    // Process the message
-    const response = await chain.call({ input: message });
-    
-    return response.response;
+    return response;
   } catch (error) {
     console.error("Error processing message:", error);
     return "Sorry, there was an error processing your message.";
@@ -35,18 +31,8 @@ export async function getUserChatHistory(): Promise<Message[]> {
     // Get user-specific session ID
     const sessionId = await getUserSessionId();
     
-    // Get chat history from Redis
-    const messages = await getChatHistory(sessionId);
-    
-    // Transform to the expected format
-    return messages.map(msg => {
-      if (msg instanceof HumanMessage) {
-        return { role: "user", content: msg.content as string };
-      } else if (msg instanceof AIMessage) {
-        return { role: "assistant", content: msg.content as string };
-      }
-      return { role: "user", content: "Message type not supported" };
-    });
+    // Get chat history from OpenAI thread
+    return await getChatHistory(sessionId);
   } catch (error) {
     console.error("Error getting chat history:", error);
     return [];
