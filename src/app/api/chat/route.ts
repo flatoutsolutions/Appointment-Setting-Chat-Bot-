@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { processMessage, getUserChatHistory } from "@/app/lib/chatService";
 
+// Define a more specific error type
+interface ErrorWithMessage {
+  message: string;
+}
+
 // Handler for POST requests to send a new message
 export async function POST(req: NextRequest) {
   try {
@@ -30,10 +35,11 @@ export async function POST(req: NextRequest) {
 
     // Return the response
     return NextResponse.json({ response });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error in chat API:", error);
+    const errorMessage = error instanceof Error ? error.message : "An error occurred processing your request";
     return NextResponse.json(
-      { error: error.message || "An error occurred processing your request" },
+      { error: errorMessage },
       { status: 500 }
     );
   }
@@ -56,10 +62,11 @@ export async function GET() {
 
     // Return the chat history
     return NextResponse.json({ history });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error retrieving chat history:", error);
+    const errorMessage = error instanceof Error ? error.message : "An error occurred retrieving chat history";
     return NextResponse.json(
-      { error: error.message || "An error occurred retrieving chat history" },
+      { error: errorMessage },
       { status: 500 }
     );
   }
