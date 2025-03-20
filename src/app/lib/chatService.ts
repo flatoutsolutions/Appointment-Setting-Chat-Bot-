@@ -1,7 +1,7 @@
 import { getUserSessionId, sendMessageToAssistant, getChatHistory } from "./sessionManager";
 
 export type Message = {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system" | string;
   content: string;
 };
 
@@ -32,7 +32,15 @@ export async function getUserChatHistory(): Promise<Message[]> {
     const sessionId = await getUserSessionId();
     
     // Get chat history from OpenAI thread
-    return await getChatHistory(sessionId);
+    const messages = await getChatHistory(sessionId);
+    
+    // Map the messages to ensure they match the expected type
+    return messages.map(msg => ({
+      role: msg.role === "user" ? "user" : 
+            msg.role === "assistant" ? "assistant" : 
+            msg.role === "system" ? "system" : "assistant",
+      content: msg.content
+    }));
   } catch (error) {
     console.error("Error getting chat history:", error);
     return [];
