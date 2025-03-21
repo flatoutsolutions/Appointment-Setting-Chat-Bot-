@@ -8,13 +8,14 @@ export type Message = {
 /**
  * Processes a chat message and returns the response
  */
-export async function processMessage(message: string): Promise<string> {
+// Update the processMessage function in chatService.ts
+export async function processMessage(message: string, isHiddenGreeting?: boolean): Promise<string> {
   try {
     // Get user-specific session ID
     const sessionId = await getUserSessionId();
     
     // Send message to OpenAI assistant and get response
-    const response = await sendMessageToAssistant(sessionId, message);
+    const response = await sendMessageToAssistant(sessionId, message, isHiddenGreeting);
     
     return response;
   } catch (error) {

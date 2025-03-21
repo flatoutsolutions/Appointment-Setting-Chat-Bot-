@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { Message } from "../lib/chatService";
 
 interface ChatBubbleProps {
@@ -9,72 +9,126 @@ interface ChatBubbleProps {
   onClose: () => void;
 }
 
-interface ChatHistoryResponse {
-  history: Message[];
-  error?: string;
-}
-
-interface ChatResponse {
-  response: string;
-  error?: string;
-}
-
 export default function ChatBubble({ isOpen, onClose }: ChatBubbleProps) {
-  const { getToken } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasGreeted, setHasGreeted] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { getToken } = useAuth();
+  const { user, isLoaded: isUserLoaded } = useUser();
 
-  // Memoized fetch chat history function
+  // Get user's name (first name or from email if not available)
+  const getUserName = () => {
+    if (!user) return "there";
+    
+    if (user.firstName) return user.firstName;
+    
+    // If no first name, try to extract from email
+    const email = user.emailAddresses[0]?.emailAddress;
+    if (email) {
+      const namePart = email.split('@')[0];
+      // Capitalize first letter and remove numbers/special chars if desired
+      return namePart.charAt(0).toUpperCase() + namePart.slice(1);
+    }
+    
+    return "there"; // Fallback
+  };
+
+  // Send a greeting to the user
+  const sendGreeting = async () => {
+    if (!isUserLoaded || hasGreeted) return;
+    
+    const userName = getUserName();
+    setIsLoading(true);
+    
+    try {
+      const token = await getToken();
+      
+      // This sends a hidden prompt to the AI - it won't be displayed in the UI
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ 
+          message: `Hi, I'm a new user named ${userName}. Please introduce yourself briefly.`,
+          isHiddenGreeting: true  // Add this flag to identify this as a hidden greeting
+        }),
+      });
+  
+      if (!response.ok) {
+        throw new Error(`Failed to send greeting: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Only add the assistant's response to the messages
+      setMessages([
+        { role: "assistant", content: `Hello ${userName}! ${data.response}` }
+      ]);
+      
+      setHasGreeted(true);
+    } catch (error) {
+      console.error("Error sending greeting:", error);
+      // Add a fallback greeting if the API call fails
+      setMessages([
+        { role: "assistant", content: `Hello ${userName}! How can I help you today?` }
+      ]);
+      setHasGreeted(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Load chat history
   const fetchChatHistory = useCallback(async () => {
     try {
-      setIsHistoryLoading(true);
       setError(null);
       const token = await getToken();
-      const abortController = new AbortController();
-
+      
       const response = await fetch("/api/chat", {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        signal: abortController.signal,
+          Authorization: `Bearer ${token}`
+        }
       });
-
+      
       if (!response.ok) {
-        const errorData = (await response.json().catch(() => ({}))) as { error?: string };
+        const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || `Failed to fetch chat history: ${response.status}`);
       }
-
-      const data = (await response.json()) as ChatHistoryResponse;
-      setMessages(data.history || []);
-      return () => abortController.abort();
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        console.error("Error fetching chat history:", error);
-        setError("Failed to load chat history. Please try again.");
+      
+      const data = await response.json();
+      const historyMessages = data.history || [];
+      
+      setMessages(historyMessages);
+      
+      // If there's no chat history, send a greeting
+      if (historyMessages.length === 0 && !hasGreeted && isUserLoaded) {
+        sendGreeting();
       }
-    } finally {
-      setIsHistoryLoading(false);
+    } catch (error) {
+      console.error("Error fetching chat history:", error);
+      setError("Failed to load chat history. Please try again.");
     }
-  }, [getToken]);
+  }, [getToken, hasGreeted, isUserLoaded]);
 
-  // Load chat history when component opens
+  // Effect to load chat history when the chat is opened
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && isUserLoaded) {
       fetchChatHistory();
     }
-  }, [isOpen, fetchChatHistory]);
+  }, [isOpen, fetchChatHistory, isUserLoaded]);
 
-  // Scroll to bottom when messages change
+  // Scroll to bottom of messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Send message handler
-  const sendMessage = async (e: React.FormEvent) => {
+  // Send message to API
+  async function sendMessage(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim()) return;
 
@@ -82,13 +136,13 @@ export default function ChatBubble({ isOpen, onClose }: ChatBubbleProps) {
     setInput("");
     setError(null);
     
+    // Optimistically add user message
     setMessages(prev => [...prev, { role: "user", content: userMessage }]);
     setIsLoading(true);
 
     try {
       const token = await getToken();
-      const abortController = new AbortController();
-
+      
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { 
@@ -96,40 +150,33 @@ export default function ChatBubble({ isOpen, onClose }: ChatBubbleProps) {
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({ message: userMessage }),
-        signal: abortController.signal,
       });
 
       if (!response.ok) {
-        const errorData = (await response.json().catch(() => ({}))) as { error?: string };
+        const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || `Failed to send message: ${response.status}`);
       }
-
-      const data = (await response.json()) as ChatResponse;
-      setMessages(prev => [...prev, { role: "assistant", content: data.response }]);
       
-      return () => abortController.abort();
+      const data = await response.json();
+      
+      // Add assistant response
+      setMessages(prev => [...prev, { role: "assistant", content: data.response }]);
     } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        console.error("Error sending message:", error);
-        setError("Failed to send message. Please try again.");
-        setMessages(prev => [
-          ...prev,
-          { role: "assistant", content: "Sorry, there was an error processing your message." },
-        ]);
-      }
+      console.error("Error sending message:", error);
+      setError("Failed to send message. Please try again.");
+      setMessages(prev => [
+        ...prev,
+        { role: "assistant", content: "Sorry, there was an error processing your message." },
+      ]);
     } finally {
       setIsLoading(false);
     }
-  };
+  }
 
-  // Improved time formatting
-  const formatTime = useCallback((date: Date) => {
-    return new Intl.DateTimeFormat('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    }).format(date);
-  }, []);
+  function formatTime() {
+    const now = new Date();
+    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+  }
 
   if (!isOpen) return null;
 
@@ -141,11 +188,7 @@ export default function ChatBubble({ isOpen, onClose }: ChatBubbleProps) {
           <div className="w-2 h-2 rounded-full bg-green-400 mr-2"></div>
           <span className="font-semibold text-lg">Chat Assistant</span>
         </div>
-        <button 
-          onClick={onClose} 
-          className="text-white hover:text-gray-200 transition-colors"
-          aria-label="Close chat"
-        >
+        <button onClick={onClose} className="text-white hover:text-gray-200 transition-colors">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -160,16 +203,8 @@ export default function ChatBubble({ isOpen, onClose }: ChatBubbleProps) {
             {error}
           </div>
         )}
-
-        {isHistoryLoading ? (
-          <div className="text-center text-gray-500 mt-8 bg-white p-6 rounded-lg shadow-sm">
-            <div className="animate-pulse">
-              <div className="w-12 h-12 bg-gray-200 rounded-full mx-auto mb-4"></div>
-              <div className="h-4 bg-gray-200 rounded w-3/4 mx-auto mb-2"></div>
-              <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
-            </div>
-          </div>
-        ) : messages.length === 0 ? (
+        
+        {messages.length === 0 ? (
           <div className="text-center text-gray-500 mt-8 bg-white p-6 rounded-lg shadow-sm">
             <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-3 text-blue-500">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -196,7 +231,7 @@ export default function ChatBubble({ isOpen, onClose }: ChatBubbleProps) {
                 <span className={`text-xs text-gray-500 mt-1 ${
                   msg.role === "user" ? "ml-auto" : "mr-auto"
                 }`}>
-                  {formatTime(new Date())}
+                  {formatTime()}
                 </span>
               </div>
             </div>
@@ -225,14 +260,12 @@ export default function ChatBubble({ isOpen, onClose }: ChatBubbleProps) {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type your message..."
             className="flex-1 p-3 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-800 placeholder-gray-500 font-medium"
-            disabled={isLoading || isHistoryLoading}
-            aria-label="Chat input"
+            disabled={isLoading}
           />
           <button
             type="submit"
             className="bg-blue-600 text-white p-3 rounded-r-lg disabled:bg-blue-400 hover:bg-blue-700 transition-colors"
-            disabled={isLoading || isHistoryLoading || !input.trim()}
-            aria-label="Send message"
+            disabled={isLoading || !input.trim()}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="22" y1="2" x2="11" y2="13"></line>

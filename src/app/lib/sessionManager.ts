@@ -32,19 +32,24 @@ export const getUserSessionId = async (): Promise<string> => {
  * Gets or creates a thread for the user
  */
 export const getUserThread = async (sessionId: string): Promise<string> => {
-  // Check if thread ID exists in Redis
-  let threadId = await redis.get<string>(`thread:${sessionId}`);
-  
-  if (!threadId) {
-    // Create a new thread if none exists
-    const thread = await openai.beta.threads.create();
-    threadId = thread.id;
+  try {
+    // Check if thread ID exists in Redis
+    let threadId = await redis.get<string>(`thread:${sessionId}`);
     
-    // Store the thread ID in Redis
-    await redis.set(`thread:${sessionId}`, threadId);
+    if (!threadId) {
+      // Create a new thread if none exists
+      const thread = await openai.beta.threads.create();
+      threadId = thread.id;
+      
+      // Store the thread ID in Redis
+      await redis.set(`thread:${sessionId}`, threadId);
+    }
+    
+    return threadId;
+  } catch (error) {
+    console.error('Error in getUserThread:', error);
+    throw error;
   }
-  
-  return threadId;
 };
 
 /**
@@ -52,61 +57,68 @@ export const getUserThread = async (sessionId: string): Promise<string> => {
  */
 export const sendMessageToAssistant = async (
   sessionId: string,
-  message: string
+  message: string,
+  isHiddenGreeting?: boolean
 ): Promise<string> => {
-  // Get thread ID for the user
-  const threadId = await getUserThread(sessionId);
-  
-  // Add message to the thread
-  await openai.beta.threads.messages.create(threadId, {
-    role: "user",
-    content: message,
-  });
-  
-  // Run the assistant on the thread
-  const run = await openai.beta.threads.runs.create(threadId, {
-    assistant_id: ASSISTANT_ID,
-  });
-  
-  // Wait for the run to complete
-  let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-  
-  // Poll until the run is completed
-  while (runStatus.status !== "completed" && runStatus.status !== "failed") {
-    await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
-    runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+  try {
+    // Get thread ID for the user
+    const threadId = await getUserThread(sessionId);
     
-    if (runStatus.status === "requires_action") {
-      // Handle tools if needed - for this implementation we're not using tools
-      console.log("Run requires action");
+    // Add message to the thread
+    await openai.beta.threads.messages.create(threadId, {
+      role: "user",
+      content: message,
+      metadata: isHiddenGreeting ? { hidden: "true" } : undefined,
+    });
+    
+    // Run the assistant on the thread
+    const run = await openai.beta.threads.runs.create(threadId, {
+      assistant_id: ASSISTANT_ID,
+    });
+    
+    // Wait for the run to complete
+    let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+    
+    // Poll until the run is completed
+    while (runStatus.status !== "completed" && runStatus.status !== "failed") {
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
+      runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+      
+      if (runStatus.status === "requires_action") {
+        // Handle tools if needed - for this implementation we're not using tools
+        console.log("Run requires action");
+      }
     }
-  }
-  
-  if (runStatus.status === "failed") {
-    throw new Error("Assistant run failed");
-  }
-  
-  // Get the latest messages
-  const messages = await openai.beta.threads.messages.list(threadId);
-  
-  // Get the latest assistant message
-  const latestMessage = messages.data
-    .filter((msg) => msg.role === "assistant")
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-  
-  if (!latestMessage) {
-    return "No response from assistant";
-  }
-  
-  // Extract the text content
-  let responseText = "";
-  for (const content of latestMessage.content) {
-    if (content.type === "text") {
-      responseText += content.text.value;
+    
+    if (runStatus.status === "failed") {
+      throw new Error("Assistant run failed");
     }
+    
+    // Get the latest messages
+    const messages = await openai.beta.threads.messages.list(threadId);
+    
+    // Get the latest assistant message
+    const latestMessage = messages.data
+      .filter((msg) => msg.role === "assistant")
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+    
+    if (!latestMessage) {
+      return "No response from assistant";
+    }
+    
+    // Extract the text content
+    let responseText = "";
+    for (const content of latestMessage.content) {
+      if (content.type === "text") {
+        responseText += content.text.value;
+      }
+    }
+    
+    return responseText;
+  } catch (error) {
+    console.error("Error in sendMessageToAssistant:", error);
+    throw error;
   }
-  
-  return responseText;
 };
 
 /**
@@ -121,20 +133,28 @@ export const getChatHistory = async (sessionId: string) => {
     const messages = await openai.beta.threads.messages.list(threadId);
     
     // Transform to our expected format
-    return messages.data.map((msg) => {
-      // Extract text content
-      let content = "";
-      for (const contentPart of msg.content) {
-        if (contentPart.type === "text") {
-          content += contentPart.text.value;
+    return messages.data
+      .filter(msg => {
+        // Filter out hidden greeting messages
+        if (msg.role === "user" && msg.metadata && msg.metadata.hidden === "true") {
+          return false;
         }
-      }
-      
-      return {
-        role: msg.role === "user" ? "user" : "assistant",
-        content,
-      };
-    }).reverse(); // Reverse to get chronological order
+        return true;
+      })
+      .map((msg) => {
+        // Extract text content
+        let content = "";
+        for (const contentPart of msg.content) {
+          if (contentPart.type === "text") {
+            content += contentPart.text.value;
+          }
+        }
+        
+        return {
+          role: msg.role,
+          content,
+        };
+      }).reverse(); // Reverse to get chronological order
   } catch (error) {
     console.error("Error getting chat history:", error);
     return [];
@@ -145,11 +165,16 @@ export const getChatHistory = async (sessionId: string) => {
  * Clears chat history by creating a new thread
  */
 export const clearChatHistory = async (sessionId: string) => {
-  // Create a new thread
-  const thread = await openai.beta.threads.create();
-  
-  // Update the thread ID in Redis
-  await redis.set(`thread:${sessionId}`, thread.id);
-  
-  return true;
+  try {
+    // Create a new thread
+    const thread = await openai.beta.threads.create();
+    
+    // Update the thread ID in Redis
+    await redis.set(`thread:${sessionId}`, thread.id);
+    
+    return true;
+  } catch (error) {
+    console.error("Error clearing chat history:", error);
+    throw error;
+  }
 };

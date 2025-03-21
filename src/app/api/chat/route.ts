@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
 
     // Parse request body
     const body = await req.json().catch(() => ({}));
-    const { message } = body;
+    const { message, isHiddenGreeting } = body;
     
     if (!message) {
       return NextResponse.json(
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Process the message
-    const response = await processMessage(message);
+    const response = await processMessage(message, isHiddenGreeting);
 
     // Return the response
     return NextResponse.json({ response });
